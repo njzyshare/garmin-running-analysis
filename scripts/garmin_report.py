@@ -29,8 +29,9 @@ DEFAULT_DAYS = 30
 # 扩展 fetch 周期至 120 天（确保覆盖历史 PB 活动如 1月份的5K等）
 PB_HISTORY_DAYS = 120
 
-# 输出目录（默认当前工作目录下的 reports/）
-OUTPUT_DIR = Path.cwd() / "reports"
+# 输出目录（相对于项目根目录的 reports/ 文件夹）
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "reports"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # DI (Discomfort Index) 计算
@@ -2101,7 +2102,6 @@ def main():
     output_path = args.output
     if not output_path:
         today = datetime.now().strftime("%Y%m%d")
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         output_path = str(OUTPUT_DIR / f"佳明训练分析报告_{today}.html")
     
     with open(output_path, "w", encoding="utf-8") as f:
