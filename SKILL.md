@@ -1,7 +1,7 @@
 ---
 name: garmin-health-analysis
 description: 查询 Garmin 健康数据并生成交互式 HTML 图表。支持 20+ 指标（睡眠阶段、Body Battery、HRV、VO₂ max、训练准备度、身体成分、血氧），下载 FIT/GPX 路线文件，查询任意时间点的海拔/配速，生成训练分析报告，并提供天气/温湿度量化分析、DI 不适指数评估。从"这周训练怎么样？"到"深度分析我的恢复 vs 训练负荷"。
-version: 2.0.1
+version: 2.0.2
 author: EversonL & Claude
 homepage: https://github.com/njzyshare/garmin-running-analysis
 agent_created: true
@@ -76,4 +76,4 @@ Token 自动存储于 `~/.clawdbot/garmin-tokens.json`。
 
 ## 版本
 
-v2.0.1 — 2026-05-26。依赖：garminconnect、fitparse、gpxpy。协议：MIT。
+v2.0.2 — 2026-05-26。依赖：garminconnect、fitparse、gpxpy。协议：MIT。
