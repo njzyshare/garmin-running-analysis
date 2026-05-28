@@ -73,7 +73,7 @@ def render_splits_table(laps, heur_type):
     """
     渲染分段配速表，包含：
     - 启发式分析横幅（如：⚠️ 异常计圈 / ✅ 自动1km计圈 / 🏃 间歇训练）
-    - 最佳公里高亮（绿色行）
+    - 最快单圈高亮（绿色行）
     - 默认折叠（details/summary 标签）
     """
 ```
