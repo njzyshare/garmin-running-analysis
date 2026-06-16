@@ -29,8 +29,9 @@ DEFAULT_DAYS = 30
 # 扩展 fetch 周期至 120 天（确保覆盖历史 PB 活动如 1月份的5K等）
 PB_HISTORY_DAYS = 120
 
-# 输出目录（默认当前工作目录下的 reports/）
-OUTPUT_DIR = Path.cwd() / "reports"
+# 输出目录（相对于项目根目录的 reports/ 文件夹）
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "reports"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # DI (Discomfort Index) 计算
@@ -820,7 +821,7 @@ def _pace_seconds(activity):
 
 
 def get_best_splits(splits):
-    """Find the best km split (lowest pace) from splits data."""
+    """Find the best lap split (lowest pace) from splits data."""
     if not splits:
         return None
     best = None
@@ -1093,7 +1094,7 @@ def render_splits_table(splits):
             lap_stride_m = lap_stride / 100.0
             lap_stride = f"{lap_stride_m:.2f}"
         lap_elev = lap.get("elevationGain", 0) or 0
-        row_class = ' class="best-km"' if i == best_idx else ""
+        row_class = ' class="best-lap"' if i == best_idx else ""
         html += f'<tr{row_class}><td>{i+1}</td><td>{lap_dist/1000:.3f} km</td><td>{lap_pace}</td><td>{lap_hr} bpm</td><td>{lap_cad}</td><td>{lap_stride} m</td><td>+{lap_elev:.0f}m</td></tr>\n'
     html += '</table>\n'
 
@@ -1348,7 +1349,7 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
 .splits-table {{ margin-top: 8px; font-size: 13px; }}
 .splits-table th {{ font-size: 12px; padding: 4px 8px; }}
 .splits-table td {{ padding: 3px 8px; font-size: 12px; }}
-.splits-table .best-km {{ background: #d4edda; font-weight: bold; }}
+.splits-table .best-lap {{ background: #d4edda; font-weight: bold; }}
 .di-green {{ color: #28a745; font-weight: bold; }}
 .di-yellow {{ color: #cc7a00; font-weight: bold; }}
 .di-orange {{ color: #e67e22; font-weight: bold; }}
@@ -1555,7 +1556,7 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
 <div class="stats-item"><span class="stats-label">爬升</span><span class="stats-value">{elev_gain:.0f} m</span></div>
 """
         if best_pace_str:
-            html += f'<div class="stats-item"><span class="stats-label">最佳1km</span><span class="stats-value">{best_pace_str}</span></div>\n'
+            html += f'<div class="stats-item"><span class="stats-label">最快单圈</span><span class="stats-value">{best_pace_str}</span></div>\n'
         if cadence != "--":
             html += f'<div class="stats-item"><span class="stats-label">步频</span><span class="stats-value">{cadence} spm</span></div>\n'
         if stride_m != "--":
@@ -2101,7 +2102,6 @@ def main():
     output_path = args.output
     if not output_path:
         today = datetime.now().strftime("%Y%m%d")
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         output_path = str(OUTPUT_DIR / f"佳明训练分析报告_{today}.html")
     
     with open(output_path, "w", encoding="utf-8") as f:

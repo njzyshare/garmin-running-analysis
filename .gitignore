@@ -23,9 +23,9 @@ Thumbs.db
 
 # Credentials (NEVER commit these)
 config.json
-config.example.json
 *.pem
 *.key
 
-# Token storage
+# Token storage (generated at runtime, contains session tokens)
 garmin_tokens/
+reports/
