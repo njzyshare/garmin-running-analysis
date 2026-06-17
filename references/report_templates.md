@@ -70,7 +70,7 @@
 ```
 🏃 Running — YYYY-MM-DD 训练类型（XX.XXkm / XX:XX）
 ========================================
-均配速: X:XX/km | 最快单圈: X:XX/km
+均配速: X:XX/km | 等强配速: X:XX/km | 最快单圈: X:XX/km
 均心率: XXX bpm | 最高心率: XXX bpm
 均步频: XXX spm | 均步幅: X.XX m
 海拔升降: +Xm / -Xm | 热量: XXX kcal

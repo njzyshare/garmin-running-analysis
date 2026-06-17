@@ -9,12 +9,19 @@
 | 功能 | 说明 |
 |------|------|
 | **训练报告** | 自动分析当日/昨日训练，输出配速、心率、爬升、天气影响评估 |
+| **等强配速** | 基于坡度数据自动折算等效平路配速，准确评估真实训练强度 |
 | **睡眠分析** | 睡眠时长、评分、睡眠阶段分布、Body Battery 充放电趋势 |
 | **恢复评估** | HRV 趋势、静息心率、训练准备度 |
 | **天气量化** | 自动获取训练地点天气，计算 DI（不适指数）量化配速影响 |
 | **周/月报告** | 按周或月维度汇总跑量、训练强度、恢复状态 |
 | **科学训练法** | 丹尼尔斯 VDOT / MAF 180 / 汉森累积疲劳 / 亚索 800 |
 | **活动文件** | 下载 FIT/GPX/TCX 格式的活动记录 |
+
+## 等强配速（Effort Pace）
+
+基于 Garmin 计圈数据（splits）实现的坡度调整配速，用于将山地/坡路训练折算为等效平路配速。
+
+> 完整计算规则（方案A/B/C、坡度因子、心率修正、Naismith参考）见 `references/effort_pace.md`。
 
 ## 快速开始
 
@@ -47,6 +54,7 @@ skill/
 ├── README.md                      # 本文件
 ├── config.example.json            # 配置模板
 ├── references/                    # 参考文件（按需加载）
+│   ├── effort_pace.md             # 等强配速计算规则
 │   ├── running_methodology.md     # 训练法（丹尼尔斯 / MAF / 汉森 / 亚索 800）
 │   ├── weather_analysis.md        # 天气与 DI 分析
 │   ├── metrics_reference.md       # Body Battery / 睡眠 / HRV 详解
@@ -56,11 +64,8 @@ skill/
 │   ├── api_reference.md           # Garmin API 参考
 │   ├── auth_and_troubleshooting.md # 认证与故障排查
 │   ├── data_processing.md         # PB 提取 / 睡眠关联
-│   ├── analysis_workflow.md       # 分析工作流（首次分析、配速区间、周跑量）
-│   ├── time_weather_refinement.md # 时间/天气细化流程
-│   ├── web_detail_fetcher.md      # 网页端计圈数据获取
 │   ├── training_metrics.md        # 心率 Zone / 运动类型代码
-│   └── node_wrapper_example.md    # Node 包装调用示例
+│   └── weather_analysis.md        # 天气与 DI 分析
 └── scripts/                       # Python 脚本
     ├── garmin_auth.py             # 认证管理
     ├── garmin_data.py             # 数据获取
