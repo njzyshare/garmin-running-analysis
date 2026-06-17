@@ -1925,6 +1925,26 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
             bp = calc_pace(best_lap.get("duration", 0), best_lap.get("distance", 0))
             best_pace_str = f'<span style="font-weight:bold;color:#28a745;">{bp}</span>'
 
+        # 等强配速（爬升>10m时计算，否则直接视为与配速一致）
+        pace_s_km = duration_s / dist_km if dist_km > 0 else 0
+        hr_val = avg_hr if isinstance(avg_hr, (int, float)) else None
+
+        if elev_gain >= 10 and splits:
+            ep = calc_effort_pace(pace_s_km, elev_gain, dist_km, avg_hr=hr_val, use_personalized=True)
+        elif elev_gain >= 10:
+            ep = calc_effort_pace(pace_s_km, elev_gain, dist_km, avg_hr=hr_val, use_personalized=False)
+        else:
+            ep = None
+        
+        if ep and ep.get("effort_pace"):
+            ep_tag = f'<span style="color:#9c27b0;font-weight:bold;">{ep["effort_pace"]}</span>'
+            avg_g = ep.get("avg_grade")
+            grade_str = f'<small style="color:#888;">(坡度{avg_g}%)</small>' if avg_g and abs(avg_g) >= 0.5 else ""
+            person_tag = '<small style="color:#9c27b0;">✦</small>' if ep.get("personalized") else ""
+            pace_display = f'{avg_pace} | 等强{ep_tag} {grade_str}{person_tag}'
+        else:
+            pace_display = avg_pace
+
         # Card start
         html += f"""<div class="workout-card">
 <h4>{act_date} {act_name} {grade}</h4>
@@ -1932,30 +1952,11 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
 <div class="meta">{impact_html}</div>
 <div class="stats-grid">
 <div class="stats-item"><span class="stats-label">距离</span><span class="stats-value">{dist_km:.2f} km</span></div>
-<div class="stats-item"><span class="stats-label">均配速</span><span class="stats-value">{avg_pace}</span></div>
+<div class="stats-item"><span class="stats-label">均配速</span><span class="stats-value">{pace_display}</span></div>
 <div class="stats-item"><span class="stats-label">均心率</span><span class="stats-value">{avg_hr} bpm</span></div>
 <div class="stats-item"><span class="stats-label">最大心率</span><span class="stats-value">{max_hr} bpm</span></div>
 <div class="stats-item"><span class="stats-label">爬升</span><span class="stats-value">{elev_gain:.0f} m</span></div>
 """
-        # 等强配速（仅爬升>50m时展示）
-        if elev_gain >= 50 and splits:
-            pace_s_km = duration_s / dist_km if dist_km > 0 else 0
-            hr_val = avg_hr if isinstance(avg_hr, (int, float)) else None
-            ep = calc_effort_pace(pace_s_km, elev_gain, dist_km, avg_hr=hr_val, use_personalized=True)
-        elif elev_gain >= 50:
-            pace_s_km = duration_s / dist_km if dist_km > 0 else 0
-            hr_val = avg_hr if isinstance(avg_hr, (int, float)) else None
-            ep = calc_effort_pace(pace_s_km, elev_gain, dist_km, avg_hr=hr_val, use_personalized=False)
-        else:
-            ep = None
-        if ep and ep.get("effort_pace"):
-            ep_tag = f'<span style="color:#9c27b0;font-weight:bold;">{ep["effort_pace"]}</span>'
-            scheme_a = ep.get("scheme") == "A"
-            avg_g = ep.get("avg_grade")
-            grade_str = f'<small style="color:#888;">(平路等效, 坡度{avg_g}%)</small>' if avg_g else ""
-            person_tag = '<small style="color:#9c27b0;">✦</small>' if ep.get("personalized") else ""
-            ep_line = f'<div class="stats-item"><span class="stats-label">等强配速{person_tag}</span><span class="stats-value">{ep_tag} {grade_str}</span></div>'
-            html += ep_line + "\n"
         if best_pace_str:
             html += f'<div class="stats-item"><span class="stats-label">最快单圈</span><span class="stats-value">{best_pace_str}</span></div>\n'
         if cadence != "--":
@@ -2017,7 +2018,7 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
     # 当周训练日程 + DI 一览
     html += '<h3>当周训练日程及 DI 一览</h3>\n'
     html += """<table>
-<tr><th>日期</th><th>活动</th><th>距离</th><th>配速</th><th>温度/湿度</th><th>DI</th><th>影响</th><th>评分</th></tr>
+<tr><th>日期</th><th>活动</th><th>距离</th><th>配速/等强</th><th>温度/湿度</th><th>DI</th><th>影响</th><th>评分</th></tr>
 """
     # Identify current/last week activities
     today_dt = datetime.now()
@@ -2051,7 +2052,17 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
         grade_tag = _grade_activity(act)
 
         act_name = act.get("activityName") or "跑步"
-        html += f"<tr><td>{d}</td><td>{act_name}</td><td>{dist_km:.1f}km</td><td>{pace}</td><td>{t}°C/{rh}%</td><td>{di_h}</td><td>{impact_short}</td><td>{grade_tag}</td></tr>\n"
+        # 计算等强配速（爬升>10m时）
+        elev = act.get("elevationGain", 0) or 0
+        if elev >= 10:
+            ep = calc_effort_pace(dur / dist_km if dist_km > 0 else 0, elev, dist_km, avg_hr=act.get("averageHR"))
+            if ep and ep.get("effort_pace"):
+                pace_display = f'{pace}<br><small style="color:#9c27b0;">等强{ep["effort_pace"]}</small>'
+            else:
+                pace_display = pace
+        else:
+            pace_display = pace
+        html += f"<tr><td>{d}</td><td>{act_name}</td><td>{dist_km:.1f}km</td><td>{pace_display}</td><td>{t}°C/{rh}%</td><td>{di_h}</td><td>{impact_short}</td><td>{grade_tag}</td></tr>\n"
 
     html += "</table>\n"
 
