@@ -4,7 +4,18 @@
 
 ---
 
-## 分析策略
+## 数据获取方式
+
+Garmin 的计圈数据通过以下 API 直接获取，无需浏览器自动化：
+
+```python
+# 通过 connectapi 直接获取全部计圈
+result = client.connectapi(f'/activity-service/activity/{activity_id}/splits')
+laps = result.get('lapDTOs', [])   # 每圈含：距离、时长、配速、HR、步频、
+                                    # 触地时间(GCT)、步幅、垂直振幅、垂直比、功率
+```
+
+每次分析训练时，优先走以上 API 获取原始计圈数据，然后通过启发式分析判断呈现方式。## 分析策略
 
 `garmin_report.py` 中的 `analyze_splits_heuristic()` 依次执行 3 种检测：
 

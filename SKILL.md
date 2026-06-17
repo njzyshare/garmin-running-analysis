@@ -1,7 +1,7 @@
 ---
 name: garmin-health-analysis
 description: 查询 Garmin 健康数据并生成交互式 HTML 图表。支持 20+ 指标（睡眠阶段、Body Battery、HRV、VO₂ max、训练准备度、身体成分、血氧），下载 FIT/GPX 路线文件，查询任意时间点的海拔/配速，生成训练分析报告，并提供天气/温湿度量化分析、DI 不适指数评估。从"这周训练怎么样？"到"深度分析我的恢复 vs 训练负荷"。
-version: 2.0.2
+version: 2.1.0
 author: EversonL & Claude
 homepage: https://github.com/njzyshare/garmin-running-analysis
 agent_created: true
@@ -13,15 +13,26 @@ metadata: {"clawdbot":{"emoji":"⌚","requires":{"env":["GARMIN_EMAIL","GARMIN_P
 从 Garmin Connect 查询健康指标，生成训练分析报告。集成天气量化分析、DI 评估、科学训练方法论。
 
 > 所有分支逻辑和技术细节已拆分到 `references/` 目录，使用时按需加载：
-> - **训练法**：`references/running_methodology.md` — 丹尼尔斯 / MAF / 汉森 / 亚索 800
-> - **天气**：`references/weather_analysis.md` — DI 公式、阈值、采集流程
-> - **指标**：`references/metrics_reference.md` — Body Battery / 睡眠 / HRV
-> - **问答**：`references/faq_guide.md` — 问答映射 + 用户信息表
-> - **模板**：`references/report_templates.md` — 报告结构模板
-> - **日志**：`references/splits_analysis.md` — 计圈启发式分析
-> - **API**：`references/api_reference.md` — Garmin API 端点与响应结构
-> - **认证**：`references/auth_and_troubleshooting.md` — 中国区登录 / 错误处理
-> - **数据处理**：`references/data_processing.md` — PB 提取 / 睡眠关联
+>
+> **核心参考：**
+> - `references/running_methodology.md` — 丹尼尔斯 / MAF / 汉森 / 亚索 800 训练法
+> - `references/weather_analysis.md` — DI 公式、阈值、采集流程
+> - `references/metrics_reference.md` — Body Battery / 睡眠 / HRV / 静息心率
+> - `references/faq_guide.md` — 问答映射 + 用户基础信息表
+> - `references/report_templates.md` — 报告结构模板
+>
+> **Garmin 特有：**
+> - `references/splits_analysis.md` — 计圈启发式分析（suspect/auto_lap_1km/interval/native）
+> - `references/api_reference.md` — Garmin API 端点与响应结构
+> - `references/auth_and_troubleshooting.md` — 中国区登录 / 错误处理
+> - `references/data_processing.md` — PB 提取 / 睡眠关联
+>
+> **高驰 skill 迭代精华（通用参考）：**
+> - `references/analysis_workflow.md` — 首次分析流程、配速区间识别、周跑量统计
+> - `references/time_weather_refinement.md` — 时间/天气细化流程（精确时段温湿度）
+> - `references/web_detail_fetcher.md` — 网页端计圈数据获取（备用方案）
+> - `references/training_metrics.md` — 运动类型代码、心率 Zone、自然周规则
+> - `references/node_wrapper_example.md` — Node 包装调用示例（解决 CLI 参数转义问题）
 
 ---
 
@@ -76,4 +87,4 @@ Token 自动存储于 `~/.clawdbot/garmin-tokens.json`。
 
 ## 版本
 
-v2.0.2 — 2026-05-26。依赖：garminconnect、fitparse、gpxpy。协议：MIT。
+v2.1.0 — 2026-06-17。依赖：garminconnect、fitparse、gpxpy。协议：MIT。
