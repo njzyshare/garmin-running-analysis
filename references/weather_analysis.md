@@ -4,32 +4,35 @@
 
 ---
 
-## 一、数据采集流程
+## 一、数据来源与优先级
 
 **每次分析关键训练（节奏跑/长距离/间歇）时，必须采集训练当天的天气数据。**
 
-Garmin API 不直接提供历史天气数据，可通过以下流程获取：
+### 数据获取优先级
 
-1. 从活动记录提取坐标（`startLatitude` / `startLongitude` 字段）
-2. 用坐标查询 Open-Meteo Archive API（免费、无需 API Key）：
+1. **Garmin API（首选）**：`get_activity_weather(activityId)` 直接返回活动关联的气象站数据
+   - 返回字段：温度(°F)、相对湿度、天气状况描述、风速风向
+   - 覆盖大部分含 GPS 轨迹的活动（约 90%+）
+2. **Open-Meteo Archive API（兜底）**：仅当 Garmin API 未返回温度数据时启用
+   - 从活动起点的经纬度查询
+   - 免费、无需 API Key
 
-   ```
-   https://archive-api.open-meteo.com/v1/archive?
-     latitude={lat}&longitude={lon}&
-     start_date={YYYY-MM-DD}&end_date={YYYY-MM-DD}&
-     hourly=temperature_2m,relative_humidity_2m,precipitation,weather_code&
-     timezone=Asia/Shanghai
-   ```
+### Open-Meteo 兜底查询示例
 
-3. WMO 天气代码 → 中文映射：
-   ```python
-   wmo = {0:"晴",1:"晴间多云",2:"多云",3:"阴",
-          45:"雾",51:"小毛毛雨",53:"中毛毛雨",61:"小雨",
-          63:"中雨",80:"阵雨",81:"中阵雨",95:"雷暴"}
-   ```
+```
+https://archive-api.open-meteo.com/v1/archive?
+  latitude={lat}&longitude={lon}&
+  start_date={YYYY-MM-DD}&end_date={YYYY-MM-DD}&
+  hourly=temperature_2m,relative_humidity_2m,precipitation,weather_code&
+  timezone=Asia/Shanghai
+```
 
-4. 训练时段取数：按训练时长估算（如 30K≈5-9am，20K≈5-8am，10K≈5-7am）
-5. 若无坐标可用：询问用户训练大致位置，用城市名拼坐标查询
+WMO 天气代码 → 中文映射：
+```python
+wmo = {0:"晴",1:"晴间多云",2:"多云",3:"阴",
+       45:"雾",51:"小毛毛雨",53:"中毛毛雨",61:"小雨",
+       63:"中雨",80:"阵雨",81:"中阵雨",95:"雷暴"}
+```
 
 ---
 

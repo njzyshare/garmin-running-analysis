@@ -19,47 +19,9 @@
 
 ## 等强配速（Effort Pace）
 
-参考高驰 EvoLab 思路，基于 Garmin 计圈数据（splits）实现的坡度调整配速，用于将山地/坡路训练折算为等效平路配速。
+基于 Garmin 计圈数据（splits）实现的坡度调整配速，用于将山地/坡路训练折算为等效平路配速。
 
-### 算法规则
-
-**触发条件**：爬升 ≥ 10m 时自动计算，否则等强配速与实际配速一致。
-
-**方案 A — 逐公里分段法（有计圈数据时首选）**
-
-对每个计圈（≈每公里）独立折算，再按距离加权平均：
-
-```
-上坡：等效配速(s) = 实际配速(s) / 1.05^坡度%
-下坡：等效配速(s) = 实际配速(s) × (1 + 0.3 × |坡度%|/10)
-```
-
-其中 坡度% = (elevationGain - elevationLoss) / 1000 × 100
-指数 1.05 为通用坡度因子（接近 Daniels VDOT 坡度调整系数）。
-
-**个性化心率修正**：
-
-当某公里平均心率高于训练平均心率 5% 以上时，说明实际付出更多努力，进一步调降等效配速（系数 = 1 - (心率比 - 1) × 0.3）。
-
-**方案 B — 整体坡度法（无计圈数据时兜底）**
-
-```
-等强配速 = 平均配速 / 1.05^avg_grade%
-avg_grade = 总爬升 / 总距离 × 100
-```
-
-**方案 C — Naismith 参考法**
-
-```
-等效平路距离 = 实际距离 + 总爬升 / 100
-Naismith 配速 = 总时间 / 等效平路距离
-```
-
-### 显示规则
-
-- 训练卡片中：均配速旁边显示 `均配速 | 等强X:XX/km`
-- 训练日程表中：配速列显示 `X:XX/km` + 等强配速小字备注视
-- 爬升 < 10m 时不显示等强配速（视为平路）
+> 完整计算规则（方案A/B/C、坡度因子、心率修正、Naismith参考）见 `references/effort_pace.md`。
 
 ## 快速开始
 
@@ -92,6 +54,7 @@ skill/
 ├── README.md                      # 本文件
 ├── config.example.json            # 配置模板
 ├── references/                    # 参考文件（按需加载）
+│   ├── effort_pace.md             # 等强配速计算规则
 │   ├── running_methodology.md     # 训练法（丹尼尔斯 / MAF / 汉森 / 亚索 800）
 │   ├── weather_analysis.md        # 天气与 DI 分析
 │   ├── metrics_reference.md       # Body Battery / 睡眠 / HRV 详解
@@ -101,11 +64,8 @@ skill/
 │   ├── api_reference.md           # Garmin API 参考
 │   ├── auth_and_troubleshooting.md # 认证与故障排查
 │   ├── data_processing.md         # PB 提取 / 睡眠关联
-│   ├── analysis_workflow.md       # 分析工作流（首次分析、配速区间、周跑量）
-│   ├── time_weather_refinement.md # 时间/天气细化流程
-│   ├── web_detail_fetcher.md      # 网页端计圈数据获取
 │   ├── training_metrics.md        # 心率 Zone / 运动类型代码
-│   └── node_wrapper_example.md    # Node 包装调用示例
+│   └── weather_analysis.md        # 天气与 DI 分析
 └── scripts/                       # Python 脚本
     ├── garmin_auth.py             # 认证管理
     ├── garmin_data.py             # 数据获取

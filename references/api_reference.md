@@ -28,7 +28,9 @@ Garmin 服务器 → Garmin 手表数据云端同步
 | 计圈数据 | ✅ **直接通过 `/splits` 端点获取完整逐圈数据**，含配速/心率/步频/触地时间/垂直振幅/功率/温度 |
 | 浏览器自动化 | ❌ **不必要** — 所有数据均通过 REST API 直接获取，无需 Playwright 爬网页 |
 
-> **与高驰对比**：高驰 MCP 不提供逐圈 API，需用 Playwright 爬网页端计圈表。Garmin 的 REST API 更开放，计圈字段也更全。## 认证流程
+> **与高驰对比**：高驰 MCP 不提供逐圈 API，需用 Playwright 爬网页端计圈表。Garmin 的 REST API 更开放，计圈字段也更全。
+
+## 认证流程
 
 ```python
 from garminconnect import Garmin
@@ -60,6 +62,7 @@ client.garth.oauth2_token = oauth2
 | Body Battery | `get_body_battery("YYYY-MM-DD")` | 充放电时间序列 |
 | 心率 | `get_heart_rates("YYYY-MM-DD")` | 静息/最大/最小 |
 | 活动 | `get_activities_by_date("start", "end")` | 活动列表 |
+| 天气 | `get_activity_weather(activityId)` | 温度(°F)、湿度、天气状况、风速 |
 | 比赛预测 | profile 数据中 `race_predictions` | 5K/10K/半马/全马 |
 
 ---
