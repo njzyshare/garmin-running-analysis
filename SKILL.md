@@ -12,27 +12,93 @@ metadata: {"clawdbot":{"emoji":"⌚","requires":{"env":["GARMIN_EMAIL","GARMIN_P
 
 从 Garmin Connect 查询健康指标，生成训练分析报告。集成天气量化分析、DI 评估、科学训练方法论。
 
-> 所有分支逻辑和技术细节已拆分到 `references/` 目录，使用时按需加载：
->
-> **核心参考：**
-> - `references/running_methodology.md` — 丹尼尔斯 / MAF / 汉森 / 亚索 800 训练法
-> - `references/weather_analysis.md` — DI 公式、阈值、采集流程
-> - `references/metrics_reference.md` — Body Battery / 睡眠 / HRV / 静息心率
-> - `references/faq_guide.md` — 问答映射 + 用户基础信息表
-> - `references/report_templates.md` — 报告结构模板
->
-> **Garmin 特有：**
-> - `references/splits_analysis.md` — 计圈启发式分析（suspect/auto_lap_1km/interval/native）
-> - `references/api_reference.md` — Garmin API 端点与响应结构
-> - `references/auth_and_troubleshooting.md` — 中国区登录 / 错误处理
-> - `references/data_processing.md` — PB 提取 / 睡眠关联
->
-> **高驰 skill 迭代精华（通用参考）：**
-> - `references/analysis_workflow.md` — 首次分析流程、配速区间识别、周跑量统计
-> - `references/time_weather_refinement.md` — 时间/天气细化流程（精确时段温湿度）
-> - `references/web_detail_fetcher.md` — 网页端计圈数据获取（备用方案）
-> - `references/training_metrics.md` — 运动类型代码、心率 Zone、自然周规则
-> - `references/node_wrapper_example.md` — Node 包装调用示例（解决 CLI 参数转义问题）
+> 各模块的详细技术文档见 `references/` 目录。
+
+---
+
+## 核心功能
+
+### 1. 训练报告（garmin_report.py）
+- **当日/昨日训练分析**：自动识别最近两次跑步活动，展示距离、配速、心率、爬升、天气影响
+- **等强配速**：基于计圈爬升数据，将山地/坡路训练折算为等效平路配速，>10m爬升自动计算
+- **计圈分段分析**：逐公里展示配速/心率/步频/步幅/海拔，标记最快单圈
+- **睡眠-恢复关联**：训练日 → 次日睡眠阶段分析（深睡/REM/浅睡/清醒）
+- **周/月报告**：滚动7天窗口跑量统计、周训练日程表、恢复与健康趋势
+- **天气量化**：自动获取训练地点天气，计算 DI（不适指数）量化配速影响
+- **DI 配速偏差分析**：高温高湿日 vs 舒适日的配速差异对比
+- **PB 展示**：Garmin API 全项 PB 提取 + 历史活动记录兜底
+- **目标参考**：半马/全马训练目标，自动从比赛预测/PB/历史最佳推断
+- **多维度评分**：跑量、长距离、配速、训练频率四维评分，生成个性化优化建议
+
+### 2. 健康数据查询（garmin_data.py）
+- 活动记录列表、睡眠数据、HRV、Body Battery、心率区间分布、压力/呼吸等
+
+### 3. 扩展指标（garmin_data_extended.py）
+- VO₂max 趋势、训练准备度、最大耗氧量等
+
+### 4. 数据可视化（garmin_chart.py）
+- 交互式仪表盘：HRV/睡眠/BB/心率区间/配速趋势/周跑量/训练准备度
+
+### 5. 时间点查询（garmin_query.py）
+- 任意时间点海拔/配速查询，活动轨迹详情
+
+### 6. 活动文件（garmin_activity_files.py）
+- FIT/GPX/TCX 格式活动文件下载与本地解析
+
+---
+
+## 安装
+
+```bash
+pip3 install garminconnect fitparse gpxpy
+```
+
+凭证存于 `~/.clawdbot/garmin-config/config.json`（`region` 可选 `"cn"`/`"intl"`）：
+
+```json
+{"email": "your-email@example.com", "password": "your-password", "region": "cn"}
+```
+
+```bash
+python3 scripts/garmin_auth.py login --email YOUR_EMAIL --password YOUR_PASSWORD
+python3 scripts/garmin_auth.py status
+```
+
+Token 自动存储于 `~/.clawdbot/garmin-tokens.json`。
+
+---
+
+## 基础命令
+
+| 脚本 | 常用参数 |
+|------|---------|
+| `garmin_data.py activities --days 30` | 活动记录 |
+| `garmin_data.py summary --days 7` | 综合摘要 |
+| `garmin_data.py hrv --days 30` | HRV 数据 |
+| `garmin_data.py body_battery --days 30` | Body Battery |
+| `garmin_data.py sleep --days 14` | 睡眠数据 |
+| `garmin_data.py profile` | 用户信息 |
+| `garmin_data_extended.py max_metrics` | VO₂max |
+| `garmin_data_extended.py training_readiness` | 训练准备度 |
+| `garmin_chart.py dashboard --days 30` | 图表仪表盘 |
+
+---
+
+## 分析流程
+
+**输出层级**：默认当日+昨日 → 询问是否需要周/月报告。周/月直接输出。
+
+**首次分析**：并行 profile + summary(7d) + activities(30d) + hrv(7d) + training_readiness + max_metrics + body_battery(30d)。
+
+**睡眠日期规则**：Garmin 用醒来日期记录。训练日 D 的睡眠 `= daily[D+1]["sleep"]`。
+
+**自然周规则**：不完整周不下结论。
+
+---
+
+## 版本
+
+v2.1.0 — 配置：garminconnect、fitparse、gpxpy。协议：MIT。
 
 ---
 
