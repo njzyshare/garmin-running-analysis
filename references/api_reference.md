@@ -4,7 +4,31 @@
 
 ---
 
-## 认证流程
+## 技术方案说明
+
+Garmin 运动数据通过 **社区维护的开源库 `python-garminconnect` (v0.3.3)** 获取，底层链路如下：
+
+```
+Python 脚本 (garmin_data.py)
+    ↓ 调用
+garminconnect 库 — 社区维护的开源库 (https://github.com/cyberjunky/python-garminconnect)
+    ↓ 发送 HTTPS 请求 + 携带 OAuth token
+Garmin Connect 官方 REST API (connect.garmin.cn)
+    ↓
+Garmin 服务器 → Garmin 手表数据云端同步
+```
+
+**关键特点：**
+
+| 特性 | 说明 |
+|:----|:------|
+| 认证方式 | OAuth1 + OAuth2 token，首次需邮箱密码，后续自动复用 |
+| Token 存储 | `~/.clawdbot/garmin-tokens.json`，自动刷新 |
+| 中国区适配 | 通过 monkey-patch 兼容 `garmin.cn` 的 DI token 端点 |
+| 计圈数据 | ✅ **直接通过 `/splits` 端点获取完整逐圈数据**，含配速/心率/步频/触地时间/垂直振幅/功率/温度 |
+| 浏览器自动化 | ❌ **不必要** — 所有数据均通过 REST API 直接获取，无需 Playwright 爬网页 |
+
+> **与高驰对比**：高驰 MCP 不提供逐圈 API，需用 Playwright 爬网页端计圈表。Garmin 的 REST API 更开放，计圈字段也更全。## 认证流程
 
 ```python
 from garminconnect import Garmin
