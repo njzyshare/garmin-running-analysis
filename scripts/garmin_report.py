@@ -142,6 +142,80 @@ def parse_activity_weather(weather_data):
     }
 
 
+def fetch_weather_fallback(lat, lon, date_str):
+    """Fetch historical weather from Open-Meteo API as fallback.
+    
+    Args:
+        lat: latitude (float)
+        lon: longitude (float)
+        date_str: date string (YYYY-MM-DD)
+    
+    Returns:
+        dict with keys: temperature (°C), humidity (%), condition, di
+        or None if fetch fails
+    """
+    if not lat or not lon or not date_str:
+        return None
+    
+    try:
+        import urllib.request
+        import json as json_mod
+        
+        # Open-Meteo archive API (free, no key needed)
+        url = (
+            f"https://archive-api.open-meteo.com/v1/archive"
+            f"?latitude={lat:.4f}&longitude={lon:.4f}"
+            f"&start_date={date_str}&end_date={date_str}"
+            f"&hourly=temperature_2m,relative_humidity_2m,precipitation"
+            f"&timezone=auto"
+        )
+        
+        req = urllib.request.Request(url, headers={"User-Agent": "GarminReport/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json_mod.loads(resp.read().decode("utf-8"))
+        
+        hourly = data.get("hourly", {})
+        times = hourly.get("time", [])
+        temps = hourly.get("temperature_2m", [])
+        humidities = hourly.get("relative_humidity_2m", [])
+        
+        if not times or not temps:
+            return None
+        
+        # Find the closest hour to noon (12:00) for a representative value
+        noon_idx = 0
+        min_diff = float("inf")
+        for i, t in enumerate(times):
+            if "T" in t:
+                hour_str = t.split("T")[1][:2]
+                try:
+                    hour = int(hour_str)
+                    diff = abs(hour - 12)
+                    if diff < min_diff:
+                        min_diff = diff
+                        noon_idx = i
+                except ValueError:
+                    pass
+        
+        temp_c = temps[noon_idx] if noon_idx < len(temps) else None
+        humidity = humidities[noon_idx] if noon_idx < len(humidities) else None
+        
+        if temp_c is None:
+            return None
+        
+        return {
+            "temperature": round(temp_c, 1),
+            "humidity": humidity,
+            "condition": None,
+            "di": calc_di(temp_c, humidity) if humidity is not None else None,
+            "source": "open-meteo"
+        }
+    
+    except Exception as e:
+        print(f"   ⚠️ Weather fallback failed: {e}", file=sys.stderr)
+        return None
+
+
 def format_pb_row(records_dict, metric_key, label, unit=""):
     """Format a personal record entry into HTML row or None."""
     if not records_dict or not isinstance(records_dict, dict):
@@ -183,10 +257,27 @@ def _time_str_to_seconds(time_str):
     return None
 
 
+def _estimate_1km_from_1mile(mile_seconds):
+    """Estimate 1KM time from 1-mile time (rough conversion).
+    
+    1 mile = 1609.34 meters
+    1 km = 1000 meters
+    Estimate: 1km time ≈ 1-mile time * (1000/1609.34)
+    """
+    if not mile_seconds or mile_seconds <= 0:
+        return None
+    km_seconds = mile_seconds * (1000.0 / 1609.34)
+    total_seconds = int(km_seconds)
+    m, s = divmod(total_seconds, 60)
+    return f"{m}:{s:02d}"
+
+
 # Known wrong values in Chinese Garmin API (discovered empirically)
+# ⚠️ DEPRECATED: Now relying on validation ranges + activity splits fallback
+# Keep for reference but no longer used in validation
 _KNOWN_BAD_PB = {
     "5K PB": 387,    # ~6:27, impossible
-    "10K PB": 1313,  # ~21:53, impossible
+    "10K PB": 1313,  # ~21:53, impossible (unless it's actually 5K PB mislabeled by API)
 }
 
 
@@ -194,22 +285,21 @@ def _validate_api_pb(label, seconds):
     """Validate API PB value. Returns True if plausible, False if obviously wrong.
 
     Realistic running PB ranges (seconds):
-    - 5K:   15min-35min  [900, 2100]
-    - 10K:  30min-70min  [1800, 4200]
-    - 半马: 54min-2h     [3240, 7200]
-    - 全马: 1h48min-4h   [6480, 14400]
+    - 1KM:     2min-6min    [120, 360]
+    - 1英里:   3min-8min    [180, 480]
+    - 5K:      15min-35min  [900, 2100]
+    - 10K:     30min-70min  [1800, 4200]
+    - 半马:    54min-2h     [3240, 7200]
+    - 全马:    1h48min-4h   [6480, 14400]
 
     Returns: (is_valid, reason_if_invalid)
     """
     if seconds is None:
         return False, "无数据"
 
-    # Check known bad values first
-    bad_val = _KNOWN_BAD_PB.get(label)
-    if bad_val is not None and abs(seconds - bad_val) < 10:
-        return False, f"API返回{bad_val}秒，明显异常（已知中国区Garmin API bug）"
-
     ranges = {
+        "1KM PB": (120, 360),
+        "1英里（1.609344KM）PB": (180, 480),
         "5K PB": (900, 2100),
         "10K PB": (1800, 4200),
         "半马 PB": (3240, 7200),
@@ -217,7 +307,7 @@ def _validate_api_pb(label, seconds):
     }
     lo, hi = ranges.get(label, (0, 999999))
     if not (lo <= seconds <= hi):
-        return False, f"超出合理范围[{lo},{hi}]"
+        return False, f"超出合理范围[{lo},{hi}]秒"
 
     return True, ""
 
@@ -226,12 +316,14 @@ def extract_personal_records(pb_data):
     """Extract running PBs from Garmin personal_record API with validation.
 
     API typeId mapping (Chinese Garmin garmin.cn):
-    - 2 = 5K  (validated; fixed via splits if invalid)
-    - 3 = 10K (validated; fixed via splits if invalid)
-    - 5 = 半马 (generally reliable)
-    - 6 = 全马 (generally reliable)
+    - 1 = 1KM   (validated)
+    - 2 = 1英里  (validated)
+    - 3 = 5K    (validated; fixed via splits if invalid)
+    - 4 = 10K   (validated; fixed via splits if invalid)
+    - 5 = 半马   (generally reliable)
+    - 6 = 全马   (generally reliable)
 
-    For 5K/10K: validate and fall back to activity splits if invalid.
+    For 1KM/1英里/5K/10K: validate and fall back to activity splits if invalid.
     For 半马/全马: use API directly (reliable per empirical testing).
 
     Returns: [{"label": "5K PB", "value": "22:21", "date": "2026-01-24",
@@ -240,10 +332,12 @@ def extract_personal_records(pb_data):
     if not pb_data:
         return []
 
-    # typeId to label mapping (Chinese Garmin)
+    # typeId to label mapping (Chinese Garmin garmin.cn)
     TYPE_MAP = {
-        2: "5K PB",
-        3: "10K PB",
+        1: "1KM PB",
+        2: "1英里（1.61KM）PB",
+        3: "5K PB",
+        4: "10K PB",
         5: "半马 PB",
         6: "全马 PB",
     }
@@ -566,13 +660,34 @@ def fetch_all_data(client, start_date, end_date, max_splits_activities=100):
             act["_splits"] = []
             print(f"   ⚠️  Splits for activity {act_id}: {e}", file=sys.stderr)
         
-        # Weather
+        # Weather — try Garmin API first, then Open-Meteo fallback
         try:
             weather = client.get_activity_weather(act_id)
             act["_weather"] = parse_activity_weather(weather)
+            # If Garmin weather missing, try Open-Meteo fallback
+            if act["_weather"].get("temperature") is None:
+                lat = act.get("startLatitude")
+                lon = act.get("startLongitude")
+                start_time = act.get("startTimeLocal", "")[:10]  # YYYY-MM-DD
+                if lat and lon and start_time:
+                    fallback = fetch_weather_fallback(lat, lon, start_time)
+                    if fallback:
+                        act["_weather"] = fallback
+                        print(f"   🌤️ Weather fallback used for activity {act_id}", file=sys.stderr)
             if act["_weather"].get("temperature") is not None:
                 weather_count += 1
         except Exception as e:
+            # Try fallback even on exception
+            lat = act.get("startLatitude")
+            lon = act.get("startLongitude")
+            start_time = act.get("startTimeLocal", "")[:10]
+            if lat and lon and start_time:
+                fallback = fetch_weather_fallback(lat, lon, start_time)
+                if fallback:
+                    act["_weather"] = fallback
+                    weather_count += 1
+                    print(f"   🌤️ Weather fallback used for activity {act_id}", file=sys.stderr)
+                    continue
             act["_weather"] = {}
             print(f"   ⚠️  Weather for activity {act_id}: {e}", file=sys.stderr)
     
@@ -693,9 +808,46 @@ def _race_distance_km(key):
 
 
 def aggregate_weekly_mileage(activities):
-    """Aggregate activities into weekly mileage."""
-    weekly = defaultdict(lambda: {"distance": 0, "count": 0, "activities": []})
+    """Aggregate activities into rolling 7-day windows, last 4 windows.
     
+    Windows are computed from yesterday, rolling backwards:
+    - Window 1: yesterday-6d ~ yesterday
+    - Window 2: yesterday-13d ~ yesterday-7d
+    - Window 3: yesterday-20d ~ yesterday-14d
+    - Window 4: yesterday-27d ~ yesterday-21d
+    
+    Returns: OrderedDict with keys like "2026-6-10~2026-6-16" (date range, no leading zeros)
+             Keys are ordered oldest → newest (so table renders left→right as past→recent)
+    """
+    from datetime import timedelta
+    from collections import OrderedDict
+    
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday = today - timedelta(days=1)
+    
+    # Build 4 rolling 7-day windows: newest first
+    windows = []  # list of (start_date, end_date)
+    for i in range(4):
+        end_date = yesterday - timedelta(days=i * 7)
+        start_date = end_date - timedelta(days=6)
+        windows.append((start_date, end_date))
+    
+    # windows list: [(w1_start,w1_end), (w2_start,w2_end), (w3_start,w3_end), (w4_start,w4_end)]
+    # w1 = most recent, w4 = oldest
+    # For display, we want oldest first (leftmost in table)
+    windows.reverse()  # now w4, w3, w2, w1 order
+    
+    result = OrderedDict()
+    
+    for start_date, end_date in windows:
+        # Format key: 2026-6-10~2026-6-16 (no leading zeros)
+        start_str = f"{start_date.year}-{start_date.month}-{start_date.day}"
+        end_str = f"{end_date.year}-{end_date.month}-{end_date.day}"
+        key = f"{start_str}~{end_str}"
+        
+        result[key] = {"distance": 0.0, "count": 0, "activities": []}
+    
+    # Assign activities to windows
     for act in activities:
         start_time = act.get("startTimeLocal", "")
         if not start_time:
@@ -708,16 +860,21 @@ def aggregate_weekly_mileage(activities):
             except (ValueError, IndexError):
                 continue
         
-        # 计算周次（周一为一周开始）
-        iso_year, iso_week, _ = dt.isocalendar()
-        week_key = f"{iso_year}-W{iso_week:02d}"
+        act_date = dt.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        dist = (act.get("distance", 0) or 0) / 1000  # 转 km
-        weekly[week_key]["distance"] += dist
-        weekly[week_key]["count"] += 1
-        weekly[week_key]["activities"].append(act)
+        # Find which window this activity belongs to
+        for start_date, end_date in windows:
+            if start_date <= act_date <= end_date:
+                start_str = f"{start_date.year}-{start_date.month}-{start_date.day}"
+                end_str = f"{end_date.year}-{end_date.month}-{end_date.day}"
+                key = f"{start_str}~{end_str}"
+                dist = (act.get("distance", 0) or 0) / 1000  # convert to km
+                result[key]["distance"] += dist
+                result[key]["count"] += 1
+                result[key]["activities"].append(act)
+                break
     
-    return dict(sorted(weekly.items()))
+    return result
 
 
 def compute_dimension_scores(activities, race_predictions):
@@ -1148,10 +1305,13 @@ def render_report(data, start_date, end_date):
             splits_pb_by_label[label] = pb
     
     # Merge strategy:
-    # 1. Start with API PBs (primary)
-    # 2. If API PB is invalid, replace with splits-based PB
-    # 3. 半马/全马 always trust API (empirically reliable)
+    # 1. Start with API PBs (now TYPE_MAP is correct for China Garmin)
+    # 2. For each PB type, validate and fall back to splits if invalid
+    # 3. 半马/全马: always prefer API (empirically reliable)
+    # 4. 1KM/1英里/5K/10K: validate API, use splits as fallback
     pb_list_merged = []
+    
+    # Process all API PBs
     for pb_api in pb_from_api:
         label = pb_api["label"]
         is_valid = pb_api.get("validated", True)
@@ -1165,7 +1325,7 @@ def render_report(data, start_date, end_date):
             pb_api["fix_source"] = "api"
             pb_list_merged.append(pb_api)
         else:
-            # Invalid API PB - use splits fallback
+            # Invalid API PB - try splits fallback
             splits_pb = splits_pb_by_label.get(label)
             if splits_pb:
                 splits_pb["fix_source"] = "splits"
@@ -1177,11 +1337,11 @@ def render_report(data, start_date, end_date):
                 pb_api["fix_source"] = "api-warn"
                 pb_list_merged.append(pb_api)
     
-    # If splits provided PB that API didn't have, add it
+    # Add any splits-based PB that API doesn't have
     api_labels = {pb["label"] for pb in pb_from_api}
     for label, pb_splits in splits_pb_by_label.items():
         if label not in api_labels:
-            pb_splits["fix_source"] = "splits-no-api"
+            pb_splits["fix_source"] = "splits-only"
             pb_list_merged.append(pb_splits)
 
     # Last 7 days stats
@@ -1222,22 +1382,60 @@ def render_report(data, start_date, end_date):
         except ValueError:
             return {}
 
-    # Helper: get sleep_hours from sleep data
-    def _extract_sleep_hours(sleep_data):
+    # Helper: get sleep details from sleep data
+    def _extract_sleep_detail(sleep_data):
+        """Extract sleep hours, score, and sleep stages from sleep data.
+        
+        Returns: (hours_str, score, deep_s, rem_s, light_s, awake_s, quality_text)
+        """
         if not isinstance(sleep_data, dict):
-            return "--", "--"
+            return "--", "--", 0, 0, 0, 0, ""
+        
         dto = sleep_data.get("dailySleepDTO", {})
         if not isinstance(dto, dict):
-            return "--", "--"
+            return "--", "--", 0, 0, 0, 0, ""
+        
+        # Sleep duration
         sleep_dur = dto.get("sleepTimeSeconds") or dto.get("sleepTime", 0) or 0
         hours = f"{sleep_dur/3600:.1f}h" if sleep_dur else "--"
+        
+        # Sleep score
         score = dto.get("sleepScore") or "--"
         scores = dto.get("sleepScores", {})
         if isinstance(scores, dict):
             overall = scores.get("overall", {})
             if isinstance(overall, dict):
                 score = overall.get("value") or score
-        return hours, score
+        
+        # Sleep stages (in seconds)
+        deep_s = dto.get("deepSleepSeconds") or dto.get("deepSleepDuration", 0) or 0
+        rem_s = dto.get("remSleepSeconds") or dto.get("remSleepDuration", 0) or 0
+        light_s = dto.get("lightSleepSeconds") or dto.get("lightSleepDuration", 0) or 0
+        awake_s = dto.get("awakeSleepSeconds") or dto.get("awakeDuration", 0) or 0
+        
+        # Calculate percentages
+        total_sleep = deep_s + rem_s + light_s
+        if total_sleep > 0:
+            deep_pct = deep_s / total_sleep * 100
+            rem_pct = rem_s / total_sleep * 100
+            light_pct = light_s / total_sleep * 100
+        else:
+            deep_pct = rem_pct = light_pct = 0
+        
+        # Quality text
+        quality_parts = []
+        if deep_s > 0:
+            quality_parts.append(f"深睡 {deep_s/60:.0f}min ({deep_pct:.0f}%)")
+        if rem_s > 0:
+            quality_parts.append(f"REM {rem_s/60:.0f}min ({rem_pct:.0f}%)")
+        if light_s > 0:
+            quality_parts.append(f"浅睡 {light_s/60:.0f}min ({light_pct:.0f}%)")
+        if awake_s > 0:
+            quality_parts.append(f"清醒 {awake_s/60:.0f}min")
+        
+        quality_text = " | ".join(quality_parts) if quality_parts else ""
+        
+        return hours, score, deep_s, rem_s, light_s, awake_s, quality_text
 
     # Helper: get body battery max for a date
     def _extract_bb_max(date_str):
@@ -1463,7 +1661,17 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
         else:
             src_badge = ' <small style="color:#888;">(API)</small>'
         
-        html += '<tr><td>📌 PB</td><td>' + pb["label"] + '</td><td><strong>' + pb["value"] + '</strong>' + src_badge + '</td><td>' + date_str + '</td></tr>\n'
+        # For 1英里 PB, add km equivalent in parentheses
+        value_display = pb["value"]
+        if "1英里" in pb["label"]:
+            # Estimate 1KM equivalent time
+            seconds = _time_str_to_seconds(pb["value"])
+            if seconds:
+                km_equivalent = _estimate_1km_from_1mile(seconds)
+                if km_equivalent:
+                    value_display = f'{pb["value"]} <small style="color:#666;">(约1km: {km_equivalent})</small>'
+        
+        html += '<tr><td>📌 PB</td><td>' + pb["label"] + '</td><td><strong>' + value_display + '</strong>' + src_badge + '</td><td>' + date_str + '</td></tr>\n'
     # 健康数据
     html += f"""<tr><td>健康</td><td>安静心率</td><td><strong>{health.get("resting_hr", "--")} bpm</strong></td><td>近7天均值</td></tr>
 <tr><td>健康</td><td>HRV 基线</td><td><strong>{health.get("hrv", "--")} ms</strong></td><td>近7天均值</td></tr>
@@ -1512,7 +1720,7 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
 
         # Sleep (shifted: training date D → sleep date D+1)
         sleep_data = _sleep_for_training(act_date)
-        sleep_hours, sleep_score = _extract_sleep_hours(sleep_data)
+        sleep_hours, sleep_score, deep_s, rem_s, light_s, awake_s, sleep_quality = _extract_sleep_detail(sleep_data)
 
         # HRV + BB for the sleep date (D+1 morning → reflects recovery from D's training)
         sleep_date_str = ""
@@ -1572,8 +1780,22 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
         summary_parts.append(f"HRV <strong>{hrv_val}</strong>")
         summary_parts.append(f"Body Battery最高 <strong>{bb_max}</strong>")
         summary_text = " | ".join(summary_parts)
-
+        
         html += f'<div class="summary-box">📊 {summary_text}</div>\n'
+        
+        # 睡眠详细分析
+        if sleep_quality:
+            html += f'<div class="summary-box" style="border-left-color:#9c27b0;">😴 睡眠阶段：{sleep_quality}</div>\n'
+        
+        # 睡眠评分分析
+        if sleep_score != "--" and isinstance(sleep_score, (int, float)):
+            if sleep_score >= 80:
+                sleep_analysis = "睡眠优秀，恢复充分，身体已准备好下一次训练。"
+            elif sleep_score >= 60:
+                sleep_analysis = "睡眠良好，基本恢复，可正常训练。"
+            else:
+                sleep_analysis = "睡眠质量偏低，建议今天安排恢复性训练或休息。"
+            html += f'<div class="summary-box" style="border-left-color:#ff9800;">💤 {sleep_analysis}</div>\n'
 
         # 天气DI解读
         w = act.get("_weather", {})
@@ -1797,7 +2019,12 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
         dd = daily[d]
         # Sleep
         sleep = dd.get("sleep", {}) or {}
-        sleep_hours, sleep_score = _extract_sleep_hours(sleep) if isinstance(sleep, dict) else ("--", "--")
+        if isinstance(sleep, dict):
+            sleep_hours, sleep_score, deep_s, rem_s, light_s, awake_s, sleep_quality = _extract_sleep_detail(sleep)
+        else:
+            sleep_hours, sleep_score = "--", "--"
+            deep_s = rem_s = light_s = awake_s = 0
+            sleep_quality = ""
 
         # HRV
         hrv_val = _extract_hrv(d)
@@ -1838,25 +2065,46 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
     # 四、优化建议
     # ==================================================================
     html += '<h2>四、💡 优化建议</h2>\n<ul class="suggestion-list">\n'
-
+    
     suggestions = []
-    if dim_scores.get("跑量", 0) <= 3:
-        suggestions.append("当前周跑量偏低，建议逐步增加至 60-70km/周以达到全马备赛量级。")
-    if dim_scores.get("长距离", 0) <= 3:
-        suggestions.append("长距离训练不足，建议每 1-2 周安排一次 20K+ 的长距离跑。")
-    if dim_scores.get("配速", 0) <= 3:
-        suggestions.append("建议增加节奏跑和 MP 配速训练，提升比赛配速体感。")
-    if dim_scores.get("训练频率", 0) <= 3:
-        suggestions.append("训练频率偏低，建议增加到每周 4-5 次训练。")
-
+    
+    # 跑量建议（基于近30天周均跑量，排除当前未完成的周）
+    avg_weekly_complete = avg_weekly_dist  # 已经只取最近4周，且当前周可能未完成
+    if dim_scores.get("跑量", 0) <= 2:
+        suggestions.append("近30天跑量明显不足，建议循序渐进增加跑量，避免突然增量导致受伤。")
+    elif dim_scores.get("跑量", 0) == 3:
+        suggestions.append("近30天周均跑量中等，可根据训练目标适当调整。")
+    
+    # 长距离建议
+    if dim_scores.get("长距离", 0) <= 2:
+        suggestions.append("长距离训练不足，建议每 1-2 周安排一次 18K+ 的长距离跑，为半马/全马打下基础。")
+    elif dim_scores.get("长距离", 0) == 3:
+        suggestions.append("长距离训练基本达标，可继续保持或适当增加距离。")
+    
+    # 配速建议
+    if dim_scores.get("配速", 0) <= 2:
+        suggestions.append("配速训练不足，建议增加节奏跑（Tempo）和间歇训练，提升速度能力。")
+    elif dim_scores.get("配速", 0) == 3:
+        suggestions.append("配速训练中等，可根据比赛目标增加针对性训练。")
+    
+    # 训练频率建议
+    if dim_scores.get("训练频率", 0) <= 2:
+        suggestions.append("训练频率偏低，建议增加到每周至少 3 次训练，保持跑步习惯。")
+    elif dim_scores.get("训练频率", 0) == 3:
+        suggestions.append("训练频率中等，可根据身体恢复情况适当增加。")
+    
     # 温湿度相关建议
     high_di_sessions = len([a for a in sorted_acts if (a.get("_weather", {}) or {}).get("di") is not None and (a.get("_weather", {}) or {}).get("di", 0) >= 27])
     if high_di_sessions >= 3:
         suggestions.append(f"近30天有 {high_di_sessions} 次训练在明显不适（DI≥27）条件下进行，注意高温高湿日的配速预期调整和补水策略。")
-
+    
+    # 恢复建议
+    if dim_scores.get("训练频率", 0) >= 4 and dim_scores.get("跑量", 0) >= 4:
+        suggestions.append("当前训练强度较高，注意安排恢复周（每 3-4 周减量一周），避免过度训练。")
+    
     if not suggestions:
         suggestions.append("各项指标良好，继续保持当前训练节奏！注意循序渐进，避免过度训练。")
-
+    
     for s in suggestions:
         html += f"<li>{s}</li>\n"
     html += "</ul>\n"
@@ -1869,7 +2117,7 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
     # 基于当前状态的全马备赛课表建议
     plans = []
     current_weekly = avg_weekly_dist if total_weeks > 0 else 40
-    target_marathon = "3:20:00"
+    target_marathon = "3:15:00"
     has_long_run = dim_scores.get("长距离", 0) >= 3
 
     # 基础课表建议
@@ -1883,7 +2131,7 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
 
     plans.append(f"目标全马 {target_marathon}（4:44/km），建议每周至少一次 MP 配速节奏跑（8-12km @4:40-4:50/km）。")
     plans.append("每周安排1-2次间歇/速度训练（如 800m x 6-8 组 @4:05-4:15/km，组间慢跑恢复）。")
-    plans.append("高强度训练次日安排恢复跑（5-8km @5:30-6:00/km），帮助排酸恢复。")
+    plans.append("高强度训练次日安排恢复跑（5-8km @5:30-6:00/km），促进主动恢复、保持肌肉弹性。")
     plans.append("高温高湿日（DI≥27）建议调整训练时间至清晨或傍晚，配速预期下调 8-15 s/km。")
 
     for p in plans:
