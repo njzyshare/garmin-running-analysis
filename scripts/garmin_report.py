@@ -83,6 +83,180 @@ def di_pace_impact(di):
         return (18, "严重影响，配速约慢15+ s/km")
 
 
+def calc_effort_pace(avg_pace_s_per_km, elevation_gain_m, distance_km, avg_hr=None, use_personalized=True):
+    """计算等强配速 (Effort Pace) - 坡度调整后的等效平路配速。
+
+    参考高驰 EvoLab 思路，结合佳明可用的数据源，提供三级计算方案：
+
+    方案 A — 每公里分段法（最优，有 splits 时使用）
+        根据每公里计圈的净爬升，逐公里独立折算，再以距离加权取平均。
+        公式：等效配速(s) = 实际配速(s) / (1.05 ^ 坡度%)
+        其中 坡度% = (elevationGain - elevationLoss) / 1000 * 100
+        指数 1.05 为通用坡度因子（接近 Daniels VDOT 坡度调整系数）。
+
+        个性化修正（当 avg_hr 可用时）：
+        如果该公里心率显著偏离训练平均心率，说明坡度-实际努力的映射
+        不同于通用模型，按心率偏离比例微调等效配速。
+
+    方案 B — 整体坡度法（兜底，无 splits 时使用）
+        等强配速 = 平均配速 / (1.05 ^ avg_grade)
+        avg_grade = elevation_gain / (distance_m * 0.01)
+
+    方案 C — Naismith 法（另存参考）
+        等效距离 = distance_km + elevation_gain / 100
+        等强配速 = total_time / 等效距离
+
+    Args:
+        avg_pace_s_per_km: 平均配速（秒/公里）
+        elevation_gain_m: 总爬升（米）
+        distance_km: 距离（公里）
+        avg_hr: 平均心率（可选，用于个性修正）
+        use_personalized: 是否启用心率个性化修正
+
+    Returns:
+        dict: {
+            "effort_pace": "4:48/km",        # 最佳估算的等强配速
+            "effort_pace_s": 288.0,           # 秒数
+            "scheme": "A|B|C",               # 使用的方案
+            "avg_grade": 3.0,                # 平均坡度 %
+            "detail": {                       # 方案A时的逐公里详情
+                "km_grades": [...],
+                "adjusted_grades": [...]
+            },
+            "personalized": True/False,      # 是否使用了心率修正
+            "naismith_pace": "4:16/km",      # Naismith法参考值
+        }
+    """
+    import math
+    from collections import OrderedDict
+
+    # === 方案 A：从活动 splits 中获取分段坡度数据 ===
+    laps = None
+    if hasattr(avg_pace_s_per_km, "_laps_cache"):
+        laps = avg_pace_s_per_km._laps_cache
+
+    if laps:
+        km_adjusted = []
+        valid_km_count = 0
+        total_adjusted_s = 0
+        total_dist = 0
+        total_actual_s = 0
+
+        for lap in laps:
+            lap_dist = lap.get("distance", 0) or 0
+            if lap_dist < 500:
+                continue
+            lap_dur = lap.get("duration", 0) or 0
+            if lap_dur <= 0:
+                continue
+            lap_up = lap.get("elevationGain", 0) or 0
+            lap_down = lap.get("elevationLoss", 0) or 0
+            lap_hr = lap.get("averageHR", 0) or 0
+
+            # 该公里净爬升百分比
+            lap_net = lap_up - lap_down
+            lap_grade = lap_net / (lap_dist / 1000 * 10)  # 净爬升/10km → %（精确）
+
+            # 通用坡度因子：1.05^坡度
+            grade_factor = 1.05 ** abs(lap_grade) if lap_grade > 0 else 1.0
+
+            # 上坡时，等强配速 < 实际配速（坡度因子越小增益越大）
+            if lap_grade > 0:
+                adjusted_s = lap_dur / grade_factor
+            else:
+                # 下坡时，实际配速已经更快，按坡度因子放大（下坡效率有限）
+                adjusted_s = lap_dur * (1.0 + 0.3 * abs(lap_grade) / 10)
+
+            # 个性化微调：如果心率显著偏离平均，说明坡度实际努力不同
+            if use_personalized and avg_hr and lap_hr > 0:
+                hr_ratio = lap_hr / avg_hr
+                if hr_ratio > 1.05:
+                    # 该公里心率偏高5%以上 → 实际付出更多努力 → 进一步降等强配速
+                    adjusted_s = adjusted_s * (1.0 - (hr_ratio - 1.0) * 0.3)
+                elif hr_ratio < 0.95:
+                    # 心率偏低 → 该公里较轻松
+                    adjusted_s = adjusted_s * (1.0 + (1.0 - hr_ratio) * 0.2)
+
+            adjusted_s = max(adjusted_s, lap_dur * 0.7)
+
+            km_adjusted.append({
+                "km": len(km_adjusted) + 1,
+                "grade": round(lap_grade, 1),
+                "actual_pace_s": lap_dur / (lap_dist / 1000) if lap_dist else 0,
+                "adj_pace_s": adjusted_s / (lap_dist / 1000) if lap_dist else 0,
+                "hr": lap_hr,
+                "factor": round(grade_factor, 3),
+                "net_elev": round(lap_net, 1),
+            })
+
+            total_adjusted_s += adjusted_s
+            total_actual_s += lap_dur
+            total_dist += lap_dist
+            valid_km_count += 1
+
+        if valid_km_count >= 2:
+            effort_pace_s = (total_adjusted_s / total_dist) * 1000 if total_dist else avg_pace_s_per_km
+            avg_g = sum(k["grade"] for k in km_adjusted) / len(km_adjusted)
+            pace_m = int(effort_pace_s // 60)
+            pace_s = int(effort_pace_s % 60)
+
+            # Naismith 参考
+            eq_dist = distance_km + elevation_gain_m / 100
+            naismith_s = (total_actual_s / eq_dist) if eq_dist else effort_pace_s
+
+            return {
+                "effort_pace": f"{pace_m}:{pace_s:02d}/km",
+                "effort_pace_s": round(effort_pace_s, 1),
+                "scheme": "A",
+                "avg_grade": round(avg_g, 1),
+                "km_count": valid_km_count,
+                "naismith_pace": f"{int(naismith_s//60)}:{int(naismith_s%60):02d}/km",
+                "naismith_pace_s": round(naismith_s, 1),
+                "personalized": use_personalized and avg_hr is not None,
+                "km_detail": km_adjusted,
+            }
+
+    # === 方案 B：整体坡度法（兜底）===
+    distance_m = distance_km * 1000
+    if distance_m > 0:
+        avg_grade = elevation_gain_m / (distance_m * 0.01)  # 总爬升/总距离*100
+        if avg_grade < 0.5:
+            # 几乎平路，等强配速 ≈ 实际配速
+            pace_m = int(avg_pace_s_per_km // 60)
+            pace_s = int(avg_pace_s_per_km % 60)
+            return {
+                "effort_pace": f"{pace_m}:{pace_s:02d}/km",
+                "effort_pace_s": round(avg_pace_s_per_km, 1),
+                "scheme": "B",
+                "avg_grade": round(avg_grade, 1),
+                "note": "基本平路，等强配速≈实际配速",
+                "naismith_pace": None,
+            }
+
+        grade_factor = 1.05 ** avg_grade
+        effort_pace_s = avg_pace_s_per_km / grade_factor
+
+        pace_m = int(effort_pace_s // 60)
+        pace_s = int(effort_pace_s % 60)
+
+        # Naismith 参考
+        eq_dist = distance_km + elevation_gain_m / 100
+        naismith_s = (avg_pace_s_per_km * distance_km / eq_dist) if eq_dist else effort_pace_s
+
+        return {
+            "effort_pace": f"{pace_m}:{pace_s:02d}/km",
+            "effort_pace_s": round(effort_pace_s, 1),
+            "scheme": "B",
+            "avg_grade": round(avg_grade, 1),
+            "note": None,
+            "naismith_pace": f"{int(naismith_s//60)}:{int(naismith_s%60):02d}/km",
+            "naismith_pace_s": round(naismith_s, 1),
+            "personalized": False,
+        }
+
+    return None
+
+
 def di_color_class(di):
     """Return CSS class for DI display."""
     if di is None:
@@ -1763,6 +1937,25 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
 <div class="stats-item"><span class="stats-label">最大心率</span><span class="stats-value">{max_hr} bpm</span></div>
 <div class="stats-item"><span class="stats-label">爬升</span><span class="stats-value">{elev_gain:.0f} m</span></div>
 """
+        # 等强配速（仅爬升>50m时展示）
+        if elev_gain >= 50 and splits:
+            pace_s_km = duration_s / dist_km if dist_km > 0 else 0
+            hr_val = avg_hr if isinstance(avg_hr, (int, float)) else None
+            ep = calc_effort_pace(pace_s_km, elev_gain, dist_km, avg_hr=hr_val, use_personalized=True)
+        elif elev_gain >= 50:
+            pace_s_km = duration_s / dist_km if dist_km > 0 else 0
+            hr_val = avg_hr if isinstance(avg_hr, (int, float)) else None
+            ep = calc_effort_pace(pace_s_km, elev_gain, dist_km, avg_hr=hr_val, use_personalized=False)
+        else:
+            ep = None
+        if ep and ep.get("effort_pace"):
+            ep_tag = f'<span style="color:#9c27b0;font-weight:bold;">{ep["effort_pace"]}</span>'
+            scheme_a = ep.get("scheme") == "A"
+            avg_g = ep.get("avg_grade")
+            grade_str = f'<small style="color:#888;">(平路等效, 坡度{avg_g}%)</small>' if avg_g else ""
+            person_tag = '<small style="color:#9c27b0;">✦</small>' if ep.get("personalized") else ""
+            ep_line = f'<div class="stats-item"><span class="stats-label">等强配速{person_tag}</span><span class="stats-value">{ep_tag} {grade_str}</span></div>'
+            html += ep_line + "\n"
         if best_pace_str:
             html += f'<div class="stats-item"><span class="stats-label">最快单圈</span><span class="stats-value">{best_pace_str}</span></div>\n'
         if cadence != "--":
