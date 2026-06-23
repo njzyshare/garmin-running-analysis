@@ -23,21 +23,22 @@ pip3 install garminconnect fitparse gpxpy
 ### 配置与登录
 
 ```bash
-# 填写凭证（region 可选 "cn"/"intl"）
-mkdir -p ~/.clawdbot/garmin-config
-cp config.example.json ~/.clawdbot/garmin-config/config.json
+mkdir -p ~/.garmin-health-analysis
+cp config.example.json ~/.garmin-health-analysis/config.json
+# 编辑 ~/.garmin-health-analysis/config.json 填入你的 Garmin 邮箱、密码和区域
 
 # 首次登录
 python3 scripts/garmin_auth.py login
 python3 scripts/garmin_auth.py status
 ```
 
-凭证格式（`~/.clawdbot/garmin-config/config.json`）：
+凭证格式（`~/.garmin-health-analysis/config.json`）：
+
 ```json
 {"email": "your-email@example.com", "password": "your-password", "region": "cn"}
 ```
 
-Token 自动存储于 `~/.clawdbot/garmin-tokens.json`，自动刷新。
+Token 自动存储于 `~/.garmin-health-analysis/tokens/`，自动刷新。
 
 ---
 
