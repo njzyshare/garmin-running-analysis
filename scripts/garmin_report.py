@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Garmin 训练分析报告 — COROS 风格
 生成综合训练分析 HTML 报告：基础信息、最强表现、周跑量统计、恢复与健康趋势、四维度评分。
 
 Usage:
     python3 scripts/garmin_report.py
     python3 scripts/garmin_report.py --days 14
-    python3 scripts/garmin_report.py --output ~/Desktop/report.html
+    python3 scripts/garmin_report.py --output ~/reports/report.html
 """
 
 import json
@@ -86,7 +85,7 @@ def di_pace_impact(di):
 def calc_effort_pace(avg_pace_s_per_km, elevation_gain_m, distance_km, avg_hr=None, use_personalized=True):
     """计算等强配速 (Effort Pace) - 坡度调整后的等效平路配速。
 
-    参考高驰 EvoLab 思路，结合佳明可用的数据源，提供三级计算方案：
+    参考 Garmin 计圈数据，提供三级计算方案：
 
     方案 A — 每公里分段法（最优，有 splits 时使用）
         根据每公里计圈的净爬升，逐公里独立折算，再以距离加权取平均。
@@ -838,17 +837,18 @@ def fetch_all_data(client, start_date, end_date, max_splits_activities=100):
         try:
             weather = client.get_activity_weather(act_id)
             act["_weather"] = parse_activity_weather(weather)
-            # If Garmin weather missing, try Open-Meteo fallback
-            if act["_weather"].get("temperature") is None:
+            # If Garmin weather missing or invalid (temp <= 0°C = impossible for running), try fallback
+            temp = act["_weather"].get("temperature")
+            if temp is None or temp <= 0:
                 lat = act.get("startLatitude")
                 lon = act.get("startLongitude")
                 start_time = act.get("startTimeLocal", "")[:10]  # YYYY-MM-DD
                 if lat and lon and start_time:
                     fallback = fetch_weather_fallback(lat, lon, start_time)
-                    if fallback:
+                    if fallback and fallback.get("temperature") is not None and fallback["temperature"] > 0:
                         act["_weather"] = fallback
                         print(f"   🌤️ Weather fallback used for activity {act_id}", file=sys.stderr)
-            if act["_weather"].get("temperature") is not None:
+            if act["_weather"].get("temperature") is not None and act["_weather"]["temperature"] > 0:
                 weather_count += 1
         except Exception as e:
             # Try fallback even on exception
@@ -1869,6 +1869,8 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
 
     sorted_acts = sorted(run_activities, key=lambda a: (a.get("startTimeLocal", "") or ""))
     recent_acts = [a for a in sorted_acts if _act_date(a) >= recent_cutoff]
+    # 倒序显示：最新的训练最先展示（用户看到第一个卡片 = 昨日）
+    recent_acts.reverse()
     for i, act in enumerate(recent_acts):
         act_date = _act_date(act)
         act_name = act.get("activityName") or act.get("activityType", {}).get("typeKey", "跑步") if isinstance(act.get("activityType"), dict) else "跑步"
@@ -1925,16 +1927,14 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
             bp = calc_pace(best_lap.get("duration", 0), best_lap.get("distance", 0))
             best_pace_str = f'<span style="font-weight:bold;color:#28a745;">{bp}</span>'
 
-        # 等强配速（爬升>10m时计算，否则直接视为与配速一致）
+        # 等强配速（始终计算，爬升<10m时等强≈实际配速）
         pace_s_km = duration_s / dist_km if dist_km > 0 else 0
         hr_val = avg_hr if isinstance(avg_hr, (int, float)) else None
 
-        if elev_gain >= 10 and splits:
+        if splits:
             ep = calc_effort_pace(pace_s_km, elev_gain, dist_km, avg_hr=hr_val, use_personalized=True)
-        elif elev_gain >= 10:
-            ep = calc_effort_pace(pace_s_km, elev_gain, dist_km, avg_hr=hr_val, use_personalized=False)
         else:
-            ep = None
+            ep = calc_effort_pace(pace_s_km, elev_gain, dist_km, avg_hr=hr_val, use_personalized=False)
         
         if ep and ep.get("effort_pace"):
             ep_tag = f'<span style="color:#9c27b0;font-weight:bold;">{ep["effort_pace"]}</span>'
@@ -2052,14 +2052,11 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
         grade_tag = _grade_activity(act)
 
         act_name = act.get("activityName") or "跑步"
-        # 计算等强配速（爬升>10m时）
+        # 计算等强配速
         elev = act.get("elevationGain", 0) or 0
-        if elev >= 10:
-            ep = calc_effort_pace(dur / dist_km if dist_km > 0 else 0, elev, dist_km, avg_hr=act.get("averageHR"))
-            if ep and ep.get("effort_pace"):
-                pace_display = f'{pace}<br><small style="color:#9c27b0;">等强{ep["effort_pace"]}</small>'
-            else:
-                pace_display = pace
+        ep = calc_effort_pace(dur / dist_km if dist_km > 0 else 0, elev, dist_km, avg_hr=act.get("averageHR"))
+        if ep and ep.get("effort_pace"):
+            pace_display = f'{pace}<br><small style="color:#9c27b0;">等强{ep["effort_pace"]}</small>'
         else:
             pace_display = pace
         html += f"<tr><td>{d}</td><td>{act_name}</td><td>{dist_km:.1f}km</td><td>{pace_display}</td><td>{t}°C/{rh}%</td><td>{di_h}</td><td>{impact_short}</td><td>{grade_tag}</td></tr>\n"
@@ -2494,7 +2491,7 @@ def _get_scored_activities(activities, race_preds):
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Garmin 训练分析报告 — COROS 风格")
+    parser = argparse.ArgumentParser(description="Garmin 训练分析报告")
     parser.add_argument("--days", type=int, default=DEFAULT_DAYS, help=f"分析天数 (默认: {DEFAULT_DAYS})")
     parser.add_argument("--pb-days", type=int, default=PB_HISTORY_DAYS, help=f"PB历史查询天数 (默认: {PB_HISTORY_DAYS})")
     parser.add_argument("--start", help="开始日期 (YYYY-MM-DD)")

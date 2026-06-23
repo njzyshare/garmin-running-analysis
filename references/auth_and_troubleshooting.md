@@ -37,14 +37,14 @@ if region == "cn":
 
 ### Token 存储
 
-- 路径：`~/.clawdbot/garmin-tokens.json`
+- 路径：`~/.garmin-health-analysis/tokens/`
 - 不同区域 token 不互通，切换区域后需重新登录
 
 ---
 
 ## 二、配置文件模板
 
-`config.example.json`（不包含敏感信息，复制到 `~/.clawdbot/garmin-config/config.json` 后填写）：
+`config.example.json`（不包含敏感信息，复制到 `~/.garmin-health-analysis/config.json` 后填写）：
 
 ```json
 {

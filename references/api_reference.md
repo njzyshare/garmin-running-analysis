@@ -23,12 +23,10 @@ Garmin 服务器 → Garmin 手表数据云端同步
 | 特性 | 说明 |
 |:----|:------|
 | 认证方式 | OAuth1 + OAuth2 token，首次需邮箱密码，后续自动复用 |
-| Token 存储 | `~/.clawdbot/garmin-tokens.json`，自动刷新 |
+| Token 存储 | `~/.garmin-health-analysis/tokens/`，自动刷新 |
 | 中国区适配 | 通过 monkey-patch 兼容 `garmin.cn` 的 DI token 端点 |
 | 计圈数据 | ✅ **直接通过 `/splits` 端点获取完整逐圈数据**，含配速/心率/步频/触地时间/垂直振幅/功率/温度 |
-| 浏览器自动化 | ❌ **不必要** — 所有数据均通过 REST API 直接获取，无需 Playwright 爬网页 |
-
-> **与高驰对比**：高驰 MCP 不提供逐圈 API，需用 Playwright 爬网页端计圈表。Garmin 的 REST API 更开放，计圈字段也更全。
+| 浏览器自动化 | ❌ **不必要** — 所有数据均通过 REST API 直接获取，无需网页爬取 |
 
 ## 认证流程
 

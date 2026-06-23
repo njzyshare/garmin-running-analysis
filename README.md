@@ -2,7 +2,7 @@
 
 从 Garmin Connect 查询跑步健康数据，生成交互式训练分析报告。支持中国区和国际区账号。
 
-适用于 WorkBuddy / Clawdbot 平台。
+适用于 WorkBuddy / Codex 等 AI 工具平台。
 
 ## 核心能力
 
@@ -34,9 +34,9 @@ pip3 install garminconnect fitparse gpxpy
 ### 2. 配置凭证
 
 ```bash
-mkdir -p ~/.clawdbot/garmin-config
-cp config.example.json ~/.clawdbot/garmin-config/config.json
-# 编辑 ~/.clawdbot/garmin-config/config.json 填入你的 Garmin 邮箱和密码
+mkdir -p ~/.garmin-health-analysis
+cp config.example.json ~/.garmin-health-analysis/config.json
+# 编辑 ~/.garmin-health-analysis/config.json 填入你的 Garmin 邮箱和密码
 ```
 
 ### 3. 登录认证
@@ -45,6 +45,8 @@ cp config.example.json ~/.clawdbot/garmin-config/config.json
 python3 scripts/garmin_auth.py login
 python3 scripts/garmin_auth.py status
 ```
+
+Token 自动存储于 `~/.garmin-health-analysis/tokens/`。
 
 ## 目录结构
 
@@ -76,9 +78,33 @@ skill/
     └── garmin_activity_files.py   # 活动文件下载/解析
 ```
 
+## 安装方式
+
+### 方式一：作为 WorkBuddy/Codex Skill 安装
+
+1. 将本目录放入 AI 工具的 skills 目录（如 `~/.workbuddy/skills/`）
+2. 确保已安装 Python 依赖：`pip3 install garminconnect fitparse gpxpy`
+3. 配置凭证并登录（见下方指引）
+
+### 方式二：独立命令行使用
+
+```bash
+git clone https://github.com/njzyshare/garmin-running-analysis.git
+cd garmin-running-analysis
+pip3 install garminconnect fitparse gpxpy
+# 配置凭证
+mkdir -p ~/.garmin-health-analysis
+cp config.example.json ~/.garmin-health-analysis/config.json
+# 编辑配置文件，然后登录
+python3 scripts/garmin_auth.py login
+python3 scripts/garmin_auth.py status
+# 生成报告
+python3 scripts/garmin_report.py --days 7
+```
+
 ## 隐私说明
 
-- 凭据和 token 存于 `~/.clawdbot/garmin-config/`，**不在 skill 目录内**
+- 凭据和 token 存于 `~/.garmin-health-analysis/`，**不在 skill 目录内**
 - 技能目录本身不含任何个人数据，可安全共享
 - Token 会自动刷新
 

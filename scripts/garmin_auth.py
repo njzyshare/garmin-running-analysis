@@ -114,10 +114,8 @@ def _patch_garmin_client():
 _patch_garmin_client()
 
 
-TOKEN_DIR = Path.home() / ".clawdbot" / "garmin"
-# 注意：config.json 含登录凭据，已移出 skill 目录
-# 请放置在 ~/.clawdbot/garmin-config/config.json
-CONFIG_FILE = Path.home() / ".clawdbot" / "garmin-config" / "config.json"
+TOKEN_DIR = Path.home() / ".garmin-health-analysis" / "tokens"
+CONFIG_FILE = Path.home() / ".garmin-health-analysis" / "config.json"
 
 
 def load_config():
@@ -273,10 +271,9 @@ def main():
             print("❌ Email and password required", file=sys.stderr)
             print("Set via:", file=sys.stderr)
             print("  1. CLI: --email and --password", file=sys.stderr)
-            print("  2. Config: create ~/.clawdbot/garmin-config/config.json", file=sys.stderr)
+            print("  2. Config: create ~/.garmin-health-analysis/config.json", file=sys.stderr)
             print("     (copy from skill's config.example.json as template)", file=sys.stderr)
             print("  3. Env vars: GARMIN_EMAIL and GARMIN_PASSWORD", file=sys.stderr)
-            print("  4. Clawdbot config: skills.entries.garmin-health-analysis.env", file=sys.stderr)
             sys.exit(1)
         
         success = login(email, password, region=region)
