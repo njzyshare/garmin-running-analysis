@@ -87,7 +87,7 @@ Token 自动存储于 `~/.garmin-health-analysis/tokens/`，自动刷新。
 |------|------|
 | 输出层级 | 默认当日+昨日 → 询问是否需要周/月报告 |
 | 首次分析 | 并行获取 profile + 7天摘要 + 30天活动 + HRV + 训练准备度 + VO₂max + 身体电量(Body Battery) |
-| 睡眠日期 | Garmin 用醒来日期记录。训练日 D 的睡眠 = daily[D+1]["sleep"] |
+| 睡眠日期 | Garmin 用醒来日期记录，符合自然语言习惯。**牢记：D 日睡眠差，是因为 D 日起得早（要早起训练），不是 D 日的训练导致的。** 训练日 D 对睡眠的影响，要到 D+1 日的数据里看：「训练日 D 后的睡眠 = daily[D+1]['sleep']」。分析时永远先检查 D 日清晨是否有早起训练/活动。 |
 | 自然周规则 | 不完整周不下结论 |
 | 天气来源 | Garmin API 首选（约 90%+ 活动有数据），缺失时自动用 Open-Meteo 兜底 |
 
@@ -113,4 +113,4 @@ Token 自动存储于 `~/.garmin-health-analysis/tokens/`，自动刷新。
 
 ## 版本
 
-v2.2.0 — HRV 保持英文缩写。其他术语中文化：身体电量(Body Battery)、不适指数(DI)、静息心率(原RHR)。依赖：garminconnect、fitparse、gpxpy。协议：MIT。
+v2.2.1 — 睡眠分析规则增强：明确「D 日睡眠差 → 先查 D 日清晨是否有早起训练」的因果检查顺序，避免将早起导致的睡眠不足错误归因为前一天的训练。HRV 保持英文缩写。其他术语中文化：身体电量(Body Battery)、不适指数(DI)、静息心率(原RHR)。依赖：garminconnect、fitparse、gpxpy。协议：MIT。
