@@ -73,17 +73,25 @@ def merge_personal_records(api_pb, activity_pb):
 
 ## 二、睡眠日期关联
 
-Garmin 用醒来日期记录睡眠。训练日 D 的睡眠 = Garmin 记录中 D+1 日期的睡眠。
+Garmin 用醒来日期记录睡眠，符合自然语言习惯。
+
+- 18号入睡 → 19号醒来 → Garmin 记录为 **19号** → 关联 **18号** 的训练
+
+**（反复犯错过的根因警告 🚨）**：
+
+当看到 `D 日睡眠差` 时，正确分析顺序：
+1. **先检查 D 日清晨是否有早起训练/活动**——如果 D 日要早起（例如 5:59 越野跑），那 D 日的睡眠短是因为要早起，不是 D 日的训练导致的
+2. 训练 D 日对睡眠的影响，要到 **D+1 日** 的睡眠记录中去看
+
+**常见错误：**
+- ❌ D 日跑了很多 → D 日睡眠差 → "训练导致睡不好"
+- ✅ D 日起得早要去训练 → D 日睡眠记录差（合理）
+- ✅ D 日训练强度大 → 要看 D+1 日的睡眠记录才知道恢复质量
 
 ```python
 def _sleep_for_training(training_date, daily_sleep_data):
-    """训练日 D 的睡眠 = Garmin D+1 的睡眠记录"""
+    """训练日 D 的恢复质量 → Garmin D+1 的睡眠记录"""
     next_day = training_date + datetime.timedelta(days=1)
     next_day_str = next_day.strftime("%Y-%m-%d")
     return daily_sleep_data.get(next_day_str, None)
 ```
-
-| 入睡 | 醒来 | Garmin 记录日期 | 关联训练日 |
-|------|------|----------------|-------------|
-| 18号晚 | 19号早 | **19号** | 18号 |
-| 19号晚 | 20号早 | **20号** | 19号 |
