@@ -61,7 +61,7 @@ Token 自动存储于 `~/.garmin-health-analysis/tokens/`，自动刷新。
 
 ### 训练分析
 - **当日/昨日训练卡片**：距离、配速、等强配速、心率、爬升、步频、步幅
-- **等强配速**：爬升 >10m 时自动将山地配速折算为等效平路配速。逐公里坡度折算 + 心率个性化修正
+- **等强配速（坡度调整配速）**：优先读取 Garmin 内置的 `avgGradeAdjustedSpeed`（summaryDTO/计圈均有）。爬升 >10m 时自动呈现坡度调整配速。Garmin 字段不可用时，再用手动坡度折算公式兜底。
 - **计圈分段表**：逐公里展示配速/心率/步频/步幅/海拔，最快单圈绿色高亮
 - **睡眠-恢复关联**：训练日 → 次日睡眠阶段（深睡/REM/浅睡/清醒）分析
 
@@ -113,4 +113,4 @@ Token 自动存储于 `~/.garmin-health-analysis/tokens/`，自动刷新。
 
 ## 版本
 
-v2.2.1 — 睡眠分析规则增强：明确「D 日睡眠差 → 先查 D 日清晨是否有早起训练」的因果检查顺序，避免将早起导致的睡眠不足错误归因为前一天的训练。HRV 保持英文缩写。其他术语中文化：身体电量(Body Battery)、不适指数(DI)、静息心率(原RHR)。依赖：garminconnect、fitparse、gpxpy。协议：MIT。
+v2.2.1 — 坡度调整配速优先使用 Garmin 内置字段 `avgGradeAdjustedSpeed`（summaryDTO/计圈），不可用时再用手动公式兜底。README 补充触发条件和规则说明。HRV 保持英文缩写。其他术语中文化。依赖：garminconnect、fitparse、gpxpy。协议：MIT。
