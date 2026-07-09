@@ -1,7 +1,7 @@
 ---
 name: garmin-health-analysis
 description: 查询 Garmin 健康数据并生成交互式 HTML 图表。支持 20+ 指标（睡眠阶段、身体电量/Body Battery、HRV、VO₂ max、训练准备度、身体成分、血氧），下载 FIT/GPX 路线文件，查询任意时间点的海拔/配速，生成训练分析报告，并提供天气/温湿度量化分析、不适指数/DI 评估。从"这周训练怎么样？"到"深度分析我的恢复 vs 训练负荷"。
-version: 2.2.0
+version: 2.3.0
 author: EversonL & Claude
 homepage: https://github.com/njzyshare/garmin-running-analysis
 agent_created: true
@@ -62,7 +62,7 @@ Token 自动存储于 `~/.garmin-health-analysis/tokens/`，自动刷新。
 ### 训练分析
 - **当日/昨日训练卡片**：距离、配速、等强配速、心率、爬升、步频、步幅
 - **等强配速（坡度调整配速）**：优先读取 Garmin 内置的 `avgGradeAdjustedSpeed`（summaryDTO/计圈均有）。爬升 >10m 时自动呈现坡度调整配速。Garmin 字段不可用时，再用手动坡度折算公式兜底。
-- **计圈分段表**：逐公里展示配速/心率/步频/步幅/海拔，最快单圈绿色高亮
+- **计圈分段表**：逐公里展示配速/心率/步频/步幅/海拔，最快单圈绿色高亮。间歇训练模式下额外展示**恢复段心率下降评估**（取最后5秒最低心率，O(1)快速计算）
 - **睡眠-恢复关联**：训练日 → 次日睡眠阶段（深睡/REM/浅睡/清醒）分析
 
 ### 周/月报告
@@ -113,4 +113,4 @@ Token 自动存储于 `~/.garmin-health-analysis/tokens/`，自动刷新。
 
 ## 版本
 
-v2.2.1 — 坡度调整配速优先使用 Garmin 内置字段 `avgGradeAdjustedSpeed`（summaryDTO/计圈），不可用时再用手动公式兜底。README 补充触发条件和规则说明。HRV 保持英文缩写。其他术语中文化。依赖：garminconnect、fitparse、gpxpy。协议：MIT。
+v2.3.0 — 新增间歇训练恢复段最低心率评估（取最后5秒平均），通过 `get_activity_details()` 逐秒心率流高效计算。分段拆解模板通用化（热身→核心→恢复→冷身）。等强配速优先使用 Garmin 内置字段 `avgGradeAdjustedSpeed`，间歇训练场景不展示等强配速。其他同上。

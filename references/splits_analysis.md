@@ -63,6 +63,39 @@ if transition_count >= 3 and fast_count >= 3 and slow_count >= 3:
     return {"type": "interval"}
 ```
 
+### Heuristic 4: 距离区间间歇（distance-based interval）
+- 预置标准距离区间：200m / 400m / 600m / 800m / 1km
+- 检测到≥3个匹配区间的圈 + 有恢复段（>区间上限的圈）→ 判定为间歇训练
+
+### 恢复段最低心率评估
+
+在检测到间歇训练模式后，额外通过 `get_activity_details()` 的逐秒心率流计算恢复段最低心率：
+
+**算法原理**：恢复段心率呈单调递减，取最后5秒平均即为该段最低心率。
+
+```python
+# 从 metricDescriptors 动态映射列索引
+col_map = {d['key']: d['metricsIndex'] for d in metric_descriptors}
+hr_col = col_map['directHeartRate']           # 心率列
+elapsed_col = col_map['sumElapsedDuration']   # 累计耗时（秒）
+
+# 恢复段最后5秒平均
+end_time = lap_range['end']
+last_5s = [hr for t, hr in timeline if end_time - 5 <= t <= end_time]
+recovery_hr = sum(last_5s) / len(last_5s)
+```
+
+**触发条件**：仅 `heuristic["pattern"] == "interval"` 时启用
+**冷身过滤**：恢复段距离 > 300m 的不参与评估（视为冷身而非恢复）
+**评估阈值**：
+
+| 降幅（从间歇最高心率） | 评估 |
+|:---:|:---:|
+| ≥30 bpm | ✅ 充分恢复 |
+| ≥20 bpm | 🟡 恢复好 |
+| ≥12 bpm | ⚪ 一般 |
+| <12 bpm | ⚠️ 恢复不足 |
+
 ### 兜底：native
 
 以上均未匹配时，判定为手表原生计圈。

@@ -833,6 +833,12 @@ def fetch_all_data(client, start_date, end_date, max_splits_activities=100):
             act["_splits"] = []
             print(f"   ⚠️  Splits for activity {act_id}: {e}", file=sys.stderr)
         
+        # Detail metrics (for recovery min HR in interval training)
+        try:
+            act["_details"] = client.get_activity_details(act_id)
+        except Exception:
+            act["_details"] = None
+        
         # Weather — try Garmin API first, then Open-Meteo fallback
         try:
             weather = client.get_activity_weather(act_id)
@@ -1337,10 +1343,119 @@ def analyze_splits_heuristic(splits):
     }
 
 
-def render_splits_table(splits):
-    """Render the splits/lap data as an HTML table with heuristic analysis."""
+def render_splits_table(splits, detail_metrics=None, metric_descriptors=None):
+    """Render the splits/lap data as an HTML table with heuristic analysis.
+
+    Args:
+        splits: List of lap dicts from get_activity_splits
+        detail_metrics: Optional list of metrics points from get_activity_details
+        metric_descriptors: Optional list of metric descriptors (for column mapping)
+    """
     if not splits:
-        return "", ""
+        return "", "", ""
+
+    # Heuristic analysis
+    heuristic = analyze_splits_heuristic(splits)
+
+    # === Recovery min HR (last 5 seconds) for interval training ===
+    recovery_html_segments = []
+    if heuristic["pattern"] == "interval" and detail_metrics and metric_descriptors:
+        # Build column map
+        col_map = {}
+        for d in metric_descriptors:
+            col_map[d['key']] = d['metricsIndex']
+        hr_col = col_map.get('directHeartRate')
+        elapsed_col = col_map.get('sumElapsedDuration')  # seconds
+        
+        if hr_col is not None and elapsed_col is not None:
+            # Build HR timeline: [elapsed_seconds, hr]
+            timeline = []
+            for pt in detail_metrics:
+                m = pt.get("metrics", [])
+                if not m or len(m) <= max(hr_col, elapsed_col):
+                    continue
+                e = m[elapsed_col]
+                h = m[hr_col]
+                if e is not None and h is not None and h > 0:
+                    timeline.append({'elapsed': e, 'hr': int(round(h))})
+            
+            if timeline:
+                # Lap boundaries (cumulative duration)
+                cumul = 0.0
+                lap_ranges = []
+                for lap in splits:
+                    dur = lap.get("duration", 0) or 0
+                    start = cumul
+                    cumul += dur
+                    lap_ranges.append({
+                        'start': start, 'end': cumul,
+                        'type': lap.get("intensityType","?"),
+                        'dist': lap.get("distance",0) or 0
+                    })
+                
+                # Recovery analysis: track interval max HRs, compute last-5s for recovery
+                interval_maxes = []
+                recovery_segments = []
+                
+                for i, lr in enumerate(lap_ranges):
+                    hrs = [t['hr'] for t in timeline if lr['start'] <= t['elapsed'] <= lr['end']]
+                    if not hrs:
+                        continue
+                    
+                    intensity = lr.get("type", "?")
+                    
+                    if intensity == "ACTIVE":
+                        interval_maxes.append(max(hrs))
+                    
+                    elif intensity == "RECOVERY" and interval_maxes:
+                        # Only short recovery segments (≤300m) qualify for interval recovery assessment
+                        # Longer segments are cool-down, not interval recovery jogs
+                        if lr['dist'] > 300:
+                            continue
+                        prev_max = interval_maxes[-1]
+                        # Last 5 seconds of recovery
+                        end_time = lr['end']
+                        last_5s = [t['hr'] for t in timeline 
+                                   if t['elapsed'] >= end_time - 5 and t['elapsed'] <= end_time]
+                        recovery_hr = sum(last_5s)/len(last_5s) if last_5s else hrs[-1]
+                        if len(last_5s) >= 2:
+                            avg_recovery_hr = sum(last_5s) / len(last_5s)
+                        else:
+                            avg_recovery_hr = hrs[-1]
+                        recovery_hr = round(avg_recovery_hr)
+                        drop = round(prev_max - recovery_hr)
+                        
+                        # Get pace from the original split data
+                        orig_lap = splits[i] if i < len(splits) else {}
+                        speed = orig_lap.get("averageSpeed", 0) or 0
+                        pace = 1000 / speed / 60 if speed > 0 else 0
+                        pace_str = f"{int(pace)}:{int((pace-int(pace))*60):02d}/km" if pace > 0 else "N/A"
+                        
+                        if drop >= 30: eval_s = "✅ 充分恢复"
+                        elif drop >= 20: eval_s = "🟡 恢复好"
+                        elif drop >= 12: eval_s = "⚪ 一般"
+                        else: eval_s = "⚠️ 恢复不足"
+                        
+                        recovery_segments.append({
+                            'interval_num': len(interval_maxes),
+                            'pace': pace_str,
+                            'interval_max': prev_max,
+                            'recovery_hr': recovery_hr,
+                            'drop': drop,
+                            'eval': eval_s
+                        })
+                
+                if recovery_segments:
+                    tbl = '<div style="margin-top:10px;">'
+                    tbl += '<div style="font-size:13px;font-weight:bold;color:#0f3460;margin-bottom:6px;">📉 恢复段心率下降评估</div>'
+                    tbl += '<table class="splits-table" style="font-size:12px;">'
+                    tbl += '<tr><th>间歇序</th><th>恢复配速</th><th>间歇最高</th><th>恢复最低</th><th>降幅</th><th>评估</th></tr>'
+                    for r in recovery_segments:
+                        tbl += f'<tr><td>{r["interval_num"]}</td><td>{r["pace"]}</td>'
+                        tbl += f'<td>{r["interval_max"]}</td><td>{r["recovery_hr"]}</td>'
+                        tbl += f'<td>{r["drop"]}</td><td>{r["eval"]}</td></tr>'
+                    tbl += '</table></div>'
+                    recovery_html_segments.append(tbl)
 
     # Heuristic analysis
     heuristic = analyze_splits_heuristic(splits)
@@ -1429,7 +1544,11 @@ def render_splits_table(splits):
         html += f'<tr{row_class}><td>{i+1}</td><td>{lap_dist/1000:.3f} km</td><td>{lap_pace}</td><td>{lap_hr} bpm</td><td>{lap_cad}</td><td>{lap_stride} m</td><td>+{lap_elev:.0f}m</td></tr>\n'
     html += '</table>\n'
 
-    return html, heuristic_notice
+    # Append recovery min HR segments if any
+    for rec_html in recovery_html_segments:
+        html += rec_html
+
+    return html, heuristic_notice, recovery_html_segments
 
 
 # ---------------------------------------------------------------------------
@@ -2001,7 +2120,14 @@ blockquote {{ border-left: 4px solid #e94560; background: #fff5f5; margin: 16px 
 
         # Splits table
         if splits:
-            splits_html, heuristic_notice = render_splits_table(splits)
+            # Get detail metrics for recovery min HR (interval training only)
+            act_details = act.get("_details")
+            detail_m = None
+            metric_d = None
+            if act_details:
+                detail_m = act_details.get("activityDetailMetrics")
+                metric_d = act_details.get("metricDescriptors")
+            splits_html, heuristic_notice, _rec_html = render_splits_table(splits, detail_m, metric_d)
             if heuristic_notice:
                 html += heuristic_notice
             html += '<details style="margin-top:8px;"><summary style="cursor:pointer;color:#0f3460;font-weight:bold;">📊 分段配速表</summary>\n'
